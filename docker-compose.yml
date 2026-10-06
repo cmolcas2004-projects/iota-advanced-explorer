@@ -1,0 +1,32 @@
+services:
+  traceability:
+    build: .
+    container_name: traceability
+    ports:
+      - "8000:8000"
+    environment:
+      - DB_PATH=/data/traceability.db
+      - HORNET_URL=http://iota-hornet:14265
+    volumes:
+      - ./data:/data
+    networks:
+      - iota-net
+    restart: unless-stopped
+
+  iota-api:
+    image: iota_api
+    container_name: iota-api
+    ports:
+      - "5555:5555"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - TRACEABILITY_URL=http://traceability:8000/messages
+    depends_on:
+      - traceability
+    networks:
+      - iota-net
+    restart: unless-stopped
+
+networks:
+  iota-net:
+    external: true

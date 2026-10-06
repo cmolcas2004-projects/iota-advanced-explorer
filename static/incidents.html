@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Incident Explorer</title>
+<style>
+body{font-family:system-ui,sans-serif;margin:0;background:#0f172a;color:#e2e8f0}
+header{padding:16px 24px;background:#1e293b;display:flex;gap:24px;align-items:center}
+h1{font-size:20px;margin:0;flex:1}
+h2{font-size:15px;margin:0 0 10px;color:#94a3b8}
+a{color:#38bdf8}
+#alert{display:none;margin:12px 24px 0;padding:12px 16px;border-radius:8px;background:#7f1d1d;border:1px solid #ef4444;font-weight:600}
+.grid{display:grid;grid-template-columns:280px 1fr 340px;gap:16px;padding:16px 24px}
+.card{background:#1e293b;border-radius:10px;padding:14px;min-height:200px}
+.flow{padding:8px;border-radius:6px;cursor:pointer;display:flex;justify-content:space-between;font-size:14px}
+.flow:hover,.flow.sel{background:#334155}
+.tl{border-left:2px solid #334155;margin-left:8px;padding-left:18px}
+.ev{position:relative;margin-bottom:16px;font-size:14px}
+.ev .dot{position:absolute;left:-26px;top:3px}
+.crit{color:#f87171;font-weight:700}
+.mono{font-family:ui-monospace,monospace;font-size:12px;color:#94a3b8}
+.inc{padding:8px 0;border-bottom:1px solid #334155;font-size:13px}
+.dot{display:inline-block;width:11px;height:11px;border-radius:50%}
+.valid{background:#22c55e}.pending{background:#eab308}.invalid{background:#ef4444}
+</style></head><body>
+<header><h1>Incident Explorer</h1><a href="/">← Explorer</a></header>
+<div id="alert"></div>
+<div class="grid">
+<div class="card"><h2>Flujos (sensor / evento)</h2><div id="flows"></div></div>
+<div class="card"><h2 id="tltitle">Timeline: elige un flujo</h2><div class="tl" id="tl"></div></div>
+<div class="card"><h2>Incidentes (críticos e inválidos)</h2><div id="inc"></div></div>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+function el(t,c,x){const e=document.createElement(t);if(c)e.className=c;if(x!==undefined)e.textContent=x;return e}
+const isCrit=t=>t.startsWith('alert.')||t.startsWith('critical.');
+const hhmm=s=>s.replace('T',' ').slice(0,19);
+let sel=null, seen=null, seenInv=null;
+
+async function loadFlows(){
+  const fl=await (await fetch('/flows')).json();
+  const box=$('flows');box.replaceChildren();
+  fl.filter(f=>f.flow_id).forEach(f=>{
+    const d=el('div','flow'+(f.flow_id===sel?' sel':''));
+    d.appendChild(el('span','',f.flow_id));
+    d.appendChild(el('span','',f.total+(f.invalid?'  ⚠'+f.invalid:'')));
+    d.onclick=()=>{sel=f.flow_id;loadAll()};
+    box.appendChild(d);
+  });
+}
+async function loadTimeline(){
+  if(!sel)return;
+  $('tltitle').textContent='Timeline: '+sel;
+  const ev=await (await fetch('/flows/'+encodeURIComponent(sel))).json();
+  const tl=$('tl');tl.replaceChildren();
+  ev.forEach(m=>{
+    const e=el('div','ev');
+    e.appendChild(el('span','dot '+m.status));
+    e.appendChild(el('div',isCrit(m.tag)?'crit':'',hhmm(m.received_at)+'  ·  '+m.tag));
+    e.appendChild(el('div','',JSON.stringify(m.content)));
+    const meta=el('div','mono',m.status+' · milestone '+(m.milestone_index??'-')+' · '+m.block_id.slice(0,18)+'…');
+    meta.title=m.block_id+'\nPadres:\n'+(m.parents||[]).join('\n')+'\n\n'+(m.detail||'');
+    e.appendChild(meta);tl.appendChild(e);
+  });
+}
+async function loadIncidents(){
+  const inc=await (await fetch('/incidents')).json();
+  const box=$('inc');box.replaceChildren();
+  inc.slice().reverse().forEach(m=>{
+    const d=el('div','inc');
+    d.appendChild(el('span','dot '+m.status));
+    d.appendChild(el('b','',' '+m.tag+' '));
+    d.appendChild(el('span','',(m.flow_id||'')+' · '+hhmm(m.received_at).slice(11)));
+    box.appendChild(d);
+  });
+  const ids=new Set(inc.map(m=>m.block_id));
+  const inv=new Set(inc.filter(m=>m.status==='invalid').map(m=>m.block_id));
+  if(seen!==null){
+    const nuevos=inc.filter(m=>m.status==='invalid'?!seenInv.has(m.block_id):!seen.has(m.block_id));
+    if(nuevos.length){
+      const m=nuevos[nuevos.length-1];
+      const a=$('alert');
+      a.textContent='🚨 '+(m.status==='invalid'?'MENSAJE INVÁLIDO: ':'EVENTO CRÍTICO: ')+m.tag+' ('+(m.flow_id||'')+')';
+      a.style.display='block';
+      setTimeout(()=>{a.style.display='none'},10000);
+    }
+  }
+  seen=ids;seenInv=inv;
+}
+async function loadAll(){await loadFlows();await loadTimeline();await loadIncidents()}
+loadAll();setInterval(loadAll,4000);
+</script></body></html>

@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IOTA Advanced Explorer</title>
+<style>
+body{font-family:system-ui,sans-serif;margin:0;background:#0f172a;color:#e2e8f0}
+header{padding:16px 24px;background:#1e293b;display:flex;gap:24px;align-items:center;flex-wrap:wrap}
+h1{font-size:20px;margin:0;flex:1}
+.stat{padding:6px 14px;border-radius:8px;background:#0f172a;font-size:14px}
+.filters{padding:12px 24px;display:flex;gap:8px;flex-wrap:wrap}
+input,select,button{padding:7px 10px;border-radius:6px;border:1px solid #334155;background:#1e293b;color:#e2e8f0}
+button{cursor:pointer}button:hover{background:#334155}
+main{padding:0 24px 24px;overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid #1e293b}
+th{color:#94a3b8;font-weight:600}
+.mono{font-family:ui-monospace,monospace;font-size:12px}
+.dot{display:inline-block;width:11px;height:11px;border-radius:50%}
+.valid{background:#22c55e}.pending{background:#eab308}.invalid{background:#ef4444}
+</style></head><body>
+<header><h1>IOTA Advanced Explorer</h1><a href="/incident-explorer" style="color:#38bdf8">Incident Explorer →</a>
+<span class="stat"><span class="dot valid"></span> <b id="cv">0</b> válidos</span>
+<span class="stat"><span class="dot pending"></span> <b id="cp">0</b> pendientes</span>
+<span class="stat"><span class="dot invalid"></span> <b id="ci">0</b> inválidos</span></header>
+<div class="filters">
+<input id="tag" placeholder="Tag (ej. sensor)">
+<select id="status"><option value="">Todos</option><option>valid</option><option>pending</option><option>invalid</option></select>
+<input id="from" type="date" title="Desde (UTC)">
+<button id="go">Filtrar</button></div>
+<main><table><thead><tr><th>Estado</th><th>Recibido (UTC)</th><th>Tag</th><th>Contenido</th><th>Milestone</th><th>BlockId</th><th></th></tr></thead>
+<tbody id="rows"></tbody></table></main>
+<script>
+const $=id=>document.getElementById(id);
+function el(t,c,x){const e=document.createElement(t);if(c)e.className=c;if(x!==undefined)e.textContent=x;return e}
+async function load(){
+  const p=new URLSearchParams();
+  if($('tag').value)p.set('tag',$('tag').value);
+  if($('status').value)p.set('status',$('status').value);
+  if($('from').value)p.set('date_from',$('from').value);
+  const data=await (await fetch('/messages?'+p)).json();
+  const tb=$('rows');tb.replaceChildren();
+  const c={valid:0,pending:0,invalid:0};
+  data.forEach(m=>{
+    c[m.status]=(c[m.status]||0)+1;
+    const tr=el('tr');
+    const s=el('td');s.appendChild(el('span','dot '+m.status));s.appendChild(document.createTextNode(' '+m.status));
+    tr.appendChild(s);
+    tr.appendChild(el('td','',m.received_at.replace('T',' ').slice(0,19)));
+    tr.appendChild(el('td','',m.tag));
+    tr.appendChild(el('td','mono',JSON.stringify(m.content)));
+    tr.appendChild(el('td','',m.milestone_index??'-'));
+    const b=el('td','mono',m.block_id.slice(0,14)+'…');
+    b.title=m.block_id+'\nPadres:\n'+(m.parents||[]).join('\n')+'\n\n'+(m.detail||'');
+    tr.appendChild(b);
+    const a=el('td');const btn=el('button','','Verificar');
+    btn.onclick=async()=>{await fetch('/messages/'+m.block_id+'/verify',{method:'POST'});load()};
+    a.appendChild(btn);tr.appendChild(a);tb.appendChild(tr);
+  });
+  $('cv').textContent=c.valid;$('cp').textContent=c.pending;$('ci').textContent=c.invalid;
+}
+$('go').onclick=load;load();setInterval(load,5000);
+</script></body></html>
