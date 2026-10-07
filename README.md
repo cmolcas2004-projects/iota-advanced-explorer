@@ -93,3 +93,13 @@ El parámetro node es el nombre del contenedor de Hornet dentro de la red iota-n
 - MQTT para notificaciones en tiempo real desde la Messages API.
 - Firma de mensajes para autenticar al emisor.
 - PostgreSQL en lugar de SQLite.
+
+## Requisitos previos
+
+La imagen `messages-api` parte de `iota_api:base`. Hay que construirla antes, desde el repo `iota-messages-api`:
+
+    docker build -t iota_api:base .
+
+## Seguridad
+
+El broker Mosquitto usa `allow_anonymous true`. Es solo para desarrollo en local, no para producción.
