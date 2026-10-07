@@ -39,7 +39,9 @@ let sel=null, seen=null, seenInv=null;
 async function loadFlows(){
   const fl=await (await fetch('/flows')).json();
   const box=$('flows');box.replaceChildren();
-  fl.filter(f=>f.flow_id).forEach(f=>{
+  const real=fl.filter(f=>f.flow_id);
+  if(sel===null&&real.length){sel=(real.find(f=>f.invalid)||real[0]).flow_id}
+  real.forEach(f=>{
     const d=el('div','flow'+(f.flow_id===sel?' sel':''));
     d.appendChild(el('span','',f.flow_id));
     d.appendChild(el('span','',f.total+(f.invalid?'  ⚠'+f.invalid:'')));
