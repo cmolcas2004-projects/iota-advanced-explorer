@@ -1,4 +1,15 @@
 services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: mosquitto
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf
+    networks:
+      - iota-net
+    restart: unless-stopped
+
   traceability:
     build: .
     container_name: traceability
@@ -7,8 +18,11 @@ services:
     environment:
       - DB_PATH=/data/traceability.db
       - HORNET_URL=http://iota-hornet:14265
+      - MQTT_HOST=mosquitto
     volumes:
       - ./data:/data
+    depends_on:
+      - mosquitto
     networks:
       - iota-net
     restart: unless-stopped
@@ -21,8 +35,10 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - TRACEABILITY_URL=http://traceability:8000/messages
+      - MQTT_HOST=mosquitto
     depends_on:
       - traceability
+      - mosquitto
     networks:
       - iota-net
     restart: unless-stopped

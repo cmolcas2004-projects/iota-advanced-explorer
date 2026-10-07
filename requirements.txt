@@ -1,0 +1,4 @@
+fastapi
+uvicorn[standard]
+requests
+paho-mqtt>=2.0,<3

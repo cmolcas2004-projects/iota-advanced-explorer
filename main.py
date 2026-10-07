@@ -4,6 +4,8 @@ from typing import Optional
 import requests
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from pydantic import BaseModel
+import paho.mqtt.client as mqtt
+import paho.mqtt.publish as mqtt_pub
 
 HORNET = os.environ.get("HORNET_URL", "http://localhost:14265")
 DB = os.environ.get("DB_PATH", "traceability.db")
@@ -119,9 +121,72 @@ def retry_loop():
             print("retry error:", e)
 
 
+MQTT_HOST = os.environ.get("MQTT_HOST", "mosquitto")
+MQTT_PORT = int(os.environ.get("MQTT_PORT", "1883"))
+TOPIC_MSGS = "iota/messages"
+TOPIC_ALERTS = "iota/alerts"
+_alerted = set()
+
+
+def mqtt_publish(topic, payload):
+    try:
+        mqtt_pub.single(topic, json.dumps(payload), hostname=MQTT_HOST,
+                        port=MQTT_PORT, qos=1)
+    except Exception as e:
+        print(f"WARN: MQTT publish fallo: {e}")
+
+
+_verify_orig = verify
+
+
+def verify(block_id):
+    r = _verify_orig(block_id)
+    try:
+        with db() as c:
+            row = c.execute("SELECT tag,status,content,milestone_index FROM messages WHERE block_id=?",
+                            (block_id,)).fetchone()
+        if row and row["status"] in ("valid", "invalid"):
+            crit = row["tag"].startswith(("alert.", "critical."))
+            key = (block_id, row["status"])
+            if (row["status"] == "invalid" or crit) and key not in _alerted:
+                _alerted.add(key)
+                mqtt_publish(TOPIC_ALERTS, {
+                    "type": "invalid_message" if row["status"] == "invalid" else "critical_event",
+                    "block_id": block_id, "tag": row["tag"],
+                    "status": row["status"], "content": json.loads(row["content"]),
+                    "milestone_index": row["milestone_index"], "at": now()})
+    except Exception as e:
+        print(f"WARN: alerta MQTT fallo: {e}")
+    return r
+
+
+def start_mqtt():
+    def on_connect(client, userdata, flags, reason_code, properties=None):
+        print(f"MQTT conectado ({reason_code}), suscrito a {TOPIC_MSGS}")
+        client.subscribe(TOPIC_MSGS, qos=1)
+
+    def on_message(client, userdata, m):
+        try:
+            d = MessageIn(**json.loads(m.payload))
+            with db() as c:
+                c.execute("""INSERT OR IGNORE INTO messages(block_id, tag, content, sent_at, received_at)
+                             VALUES (?,?,?,?,?)""",
+                          (d.block_id, d.tag, json.dumps(d.message), d.sent_at, now()))
+            verify(d.block_id)
+        except Exception as e:
+            print(f"WARN: mensaje MQTT descartado: {e}")
+
+    cl = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+    cl.on_connect = on_connect
+    cl.on_message = on_message
+    cl.connect_async(MQTT_HOST, MQTT_PORT, 60)
+    cl.loop_start()
+
+
 @app.on_event("startup")
 def start_retry():
     threading.Thread(target=retry_loop, daemon=True).start()
+    start_mqtt()
 
 
 @app.post("/messages", status_code=201)
